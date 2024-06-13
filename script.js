@@ -2,57 +2,73 @@
 // pdf(dataBuffer).then(function(data) {
 //     console.log(data.text);
 // });
-//
+//process.env.OPENAI_KEY
 require("dotenv").config();
+
 const pdf = require('pdf-parse');
 const fs = require('fs');
-const { OpenAI } = require('langchain/openai');
-const { Embeddings } = require('langchain/embeddings');
-const { Chat } = require('langchain/chat');
+const axios = require('axios');
 
 
 let dataBuffer = fs.readFileSync('sample.pdf');
 
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_KEY,
-});
-
-
 async function getTextEmbeddings(text) {
-    const embeddings = new Embeddings({
-        model: 'text-embedding-ada-002',  // OpenAI's text embedding model
-    });
-    return await embeddings.embed(text);
+    try {
+        const response = await axios.post(
+            'https://api.openai.com/v1/embeddings',
+            {
+                model: 'text-embedding-ada-002',
+                input: text,
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENAI_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+            }
+        );
+        return response.data.data[0].embedding;
+    } catch (error) {
+        console.error('Error getting text embeddings:', error.response ? error.response.data : error.message);
+    }
 }
 
 
-async function chatWithOpenAI(text) {
-    const chat = new Chat({
-        model: 'gpt-3.5-turbo', 
-        openai: openai,
-    });
-
-    const messages = [
-        { role: 'system', content: 'You are a helpful assistant.' },
-        { role: 'user', content: text }
-    ];
-
-    const response = await chat.generate(messages);
-    return response.choices[0].message.content;
+async function chatWithOpenAI(embedding, query) {
+    try {
+        const response = await axios.post(
+            'https://api.openai.com/v1/chat/completions',
+            {
+                model: 'gpt-4',
+                messages: [
+                    { role: 'system', content: 'You are a helpful assistant.' },
+                    { role: 'user', content: `Using the document embedding: ${embedding}, ${query}` }
+                ]
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENAI_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+            }
+        );
+        return response.data.choices[0].message.content;
+    } catch (error) {
+        console.error('Error during chat interaction:', error.response ? error.response.data : error.message);
+    }
 }
 
 
 pdf(dataBuffer).then(async function(data) {
-    console.log("PDF Text:", data.text);
+    console.log('PDF Text:', data.text);
 
 
     const embeddings = await getTextEmbeddings(data.text);
-    console.log("Text Embeddings:", embeddings);
+    console.log('Text Embeddings:', embeddings);
 
 
-    const query = "What is the main topic of this document?";
-    const chatbotResponse = await chatWithOpenAI(query);
-    console.log("Chatbot Response:", chatbotResponse);
+    const query = 'summarize the whole book in 5 sentences?';
+    const chatbotResponse = await chatWithOpenAI(embeddings, query);
+    console.log('Chatbot Response:', chatbotResponse);
 });
-
